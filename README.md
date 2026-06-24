@@ -370,15 +370,37 @@ DeviceFileEvents
 
 ***FLAG 19 — Identify the External IP Contacted by the Executable***
 
-**Objective:**
+**Objective:** After execution on CH-OPS-WKS02, the downloaded binary attempted to initiate outbound communication to an external endpoint. Defender logged multiple failed TCP connection attempts to a remote IP on a high-nonstandard port. This traffic does not match any approved services and was initiated directly by the suspicious executable. What external IP address did the executable attempt to contact after execution?
 
-**Flag:**
+**Flag:** `13.228.171.119`
+```
+DeviceNetworkEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-12-02) .. datetime(2025-12-13))
+| where RemotePort == 11746
+| project TimeGenerated, DeviceName, RemoteIP, RemotePort, LocalPort, RemoteUrl
+| order by TimeGenerated asc
+```
+<img width="565" height="77" alt="image" src="https://github.com/user-attachments/assets/206bbad5-8503-45d2-abc8-1259d49a745c" />
 
+---
 
-**Objective:**
+***Flag 20 — Persistence via Startup Folder Placement***
 
-**Flag:**
+**Objective:** After the downloaded binary executed and attempted outbound communication, Defender recorded another file event involving the same executable. The file was copied into a Windows Startup directory — a location frequently abused by attackers for simple persistence. Anything placed in this directory launches automatically at user logon. Which folder path did the attacker use to establish persistence for the executable?
 
+**Flag:** `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\revshell.exe`
+```
+DeviceFileEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-12-02) .. datetime(2025-12-13))
+| where FolderPath has_any ("Start")
+| project TimeGenerated, DeviceName, FileName, FolderPath, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="1207" height="86" alt="image" src="https://github.com/user-attachments/assets/3008ac36-5b94-4c3a-b35d-dcbaf5b71ed1" />
+
+---
 
 **Objective:**
 
