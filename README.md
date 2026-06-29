@@ -434,37 +434,117 @@ DeviceNetworkEvents
 ```
 <img width="842" height="92" alt="image" src="https://github.com/user-attachments/assets/164f1868-f856-49d3-86a7-63cdc2f2d91d" />
 
+---
 
+***FLAG 23 — Identify the Internal Pivot Host Used by the Attacker***
 
-**Objective:**
+**Objective:** The remote session metadata shows multiple IP addresses associated with the attacker’s activity. One of these addresses appears to be part of the internal Azure virtual network, suggesting the adversary either compromised another VM first or used an internal hop to reach CH-OPS-WKS02. Identifying this internal pivot point is essential to retracing the attacker’s route through the environment. Which internal IP address (non–100.64.x.x) appears as part of the attacker’s remote session metadata?
 
-**Flag:**
+**Flag:** `10.168.0.7`
+```
+DeviceNetworkEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where InitiatingProcessRemoteSessionDeviceName != ""
+| project TimeGenerated, DeviceName, InitiatingProcessRemoteSessionDeviceName, ActionType, InitiatingProcessRemoteSessionIP
+| order by TimeGenerated desc 
+```
+<img width="822" height="97" alt="image" src="https://github.com/user-attachments/assets/ccfb6d0f-7087-4860-b695-2b836f7b24f5" />
 
+---
 
-**Objective:**
+***FLAG 24 — Identify the First Suspicious Logon Event***
 
-**Flag:**
+**Objective:** To determine when the adversary first accessed the system, we need to look at the earliest logon event tied to their activity. This marks the true beginning of their presence on CH-OPS-WKS02. Multiple remote session IPs appear later in the attack timeline, but only one timestamp reflects the very first successful logon. What is the earliest timestamp showing a suspicious logon to CH-OPS-WKS02?
 
+**Flag:** `2025-11-23T03:08:31.1849379Z`
+```
+DeviceLogonEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where ActionType == "LogonSuccess"
+| where InitiatingProcessAccountDomain != "nt authority"
+| project TimeGenerated, DeviceName, LogonType, ActionType, RemoteIP, RemotePort
+| order by TimeGenerated asc
+```
+<img width="776" height="72" alt="image" src="https://github.com/user-attachments/assets/935a3f78-4cb6-4178-a0db-63ea818cb0a1" />
 
-**Objective:**
+---
 
-**Flag:**
+***FLAG 25 — IP Address Used During the First Suspicious Logon***
 
+**Objective:** The earliest logon event provides a direct indicator of the attacker’s initial network origin. This IP represents the start of the intrusion path and will help narrow down whether the access came from another internal VM, a pivot device, or an external relay. What IP address is associated with the earliest suspicious logon timestamp?
 
-**Objective:**
+**Flag:** `104.164.168.17`
+```
+DeviceLogonEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where ActionType == "LogonSuccess"
+| where InitiatingProcessAccountDomain != "nt authority"
+| project TimeGenerated, DeviceName, LogonType, ActionType, RemoteIP, RemotePort
+| order by TimeGenerated asc
+```
+<img width="776" height="72" alt="image" src="https://github.com/user-attachments/assets/935a3f78-4cb6-4178-a0db-63ea818cb0a1" />
 
-**Flag:**
+---
 
+***FLAG 26 — Account Used During the First Suspicious Logon***
 
-**Objective:**
+**Objective:** Knowing the timestamp and IP of the initial suspicious logon allows us to pinpoint exactly which credentials the adversary leveraged to gain access. Identifying the compromised account is critical for understanding how the attacker authenticated and whether they used stolen credentials, a shared admin account, or a local user. Your task now is to determine which account was involved in that earliest logon event. Which account name appears in the earliest suspicious logon event?
 
-**Flag:**
+**Flag:** `chadmin`
+```
+DeviceLogonEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where ActionType == "LogonSuccess"
+| where InitiatingProcessAccountDomain != "nt authority"
+| project TimeGenerated, DeviceName, AccountName, LogonType, ActionType, RemoteIP
+| order by TimeGenerated asc
+```
+<img width="821" height="75" alt="image" src="https://github.com/user-attachments/assets/28ebcef3-350e-4ce2-a657-42145f5062d4" />
 
+---
 
-**Objective:**
+***FLAG 27 — Determine the Attacker’s Geographic Region***
 
-**Flag:**
+**Objective:** To understand where the attacker was operating from, analysts often enrich these IPs with geolocation data. Microsoft’s geo_info_from_ip_address() function allows you to derive country, region, and city information directly from KQL—no external OSINT tools required. Your task is to determine the attacker’s geographic origin using this enriched data. According to Defender geolocation enrichment, what country or region do the attacker’s IPs originate from?
 
+**Flag:** `Vietnam`
+```
+DeviceLogonEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where RemoteIPType == "Public"
+| extend GeoInfo = geo_info_from_ip_address(RemoteIP)
+| extend Country = tostring(GeoInfo.country)
+| summarize IPs = make_set(RemoteIP) by Country
+```
+<img width="997" height="77" alt="image" src="https://github.com/user-attachments/assets/149fe811-3793-4e50-84ad-cda56157c5e6" />
+
+---
+
+***FLAG 28 — First Process Launched After the Attacker Logged In***
+
+**Objective:** After establishing the attacker’s first login timestamp and origin IP, the next step is determining what they did immediately after gaining access. Defender records each new process execution along with its associated logon session, allowing analysts to trace the attacker’s first action on the system. This reveals whether the adversary began with exploration, privilege escalation, or immediate deployment of tools. What was the first process launched by the attacker immediately after logging in?
+
+**Flag:** `explorer.exe`
+```
+DeviceProcessEvents
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where DeviceName == "ch-ops-wks02"
+| where AccountName == "chadmin" 
+        or InitiatingProcessAccountName == "chadmin"
+| where TimeGenerated >= datetime("2025-11-23T03:08:31.1849379Z")
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine
+| sort by TimeGenerated asc
+```
+<img width="607" height="72" alt="image" src="https://github.com/user-attachments/assets/3aa4ef88-d064-46c4-862e-829b78dfeff5" />
+
+---
+
+***FLAG 29 — Identify the First File the Attacker Accessed***
 
 **Objective:**
 
