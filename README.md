@@ -402,14 +402,38 @@ DeviceFileEvents
 
 ---
 
-**Objective:**
+***FLAG 21 — Identify the Remote Session Source Device***
 
-**Flag:**
+**Objective:** Several suspicious events — including file placement, network attempts, and execution — share the same remote session metadata. This indicates the attacker interacted with CH-OPS-WKS02 through a remote session rather than local physical access. Your first step is to identify the device name consistently listed as the remote session origin. What is the remote session device name associated with the attacker’s activity?
 
+**Flag:** `对手`
+```
+DeviceNetworkEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where InitiatingProcessRemoteSessionDeviceName != ""
+| project TimeGenerated, DeviceName, InitiatingProcessRemoteSessionDeviceName, ActionType, RemotePort, Protocol
+| order by TimeGenerated asc
+```
+<img width="810" height="91" alt="image" src="https://github.com/user-attachments/assets/3a3640a2-70df-4c08-8c1e-2f49560ec60d" />
 
-**Objective:**
+---
 
-**Flag:**
+***FLAG 22 — Identify the Remote Session IP Address***
+
+**Objective:** The same remote session metadata attached to multiple suspicious events on CH-OPS-WKS02 includes a consistent originating IP address. This value represents the network source used by the adversary to interact with the system. Identifying this IP allows you to track the adversary’s entry point and correlate it with authentication logs, lateral movement, or external access patterns. What IP address appears as the source of the remote session tied to the attacker’s activity?
+
+**Flag:** `100.64.100.6`
+```
+DeviceNetworkEvents
+| where DeviceName == "ch-ops-wks02"
+| where TimeGenerated between (datetime(2025-11-15) .. datetime(2025-12-13))
+| where InitiatingProcessRemoteSessionDeviceName != ""
+| project TimeGenerated, DeviceName, InitiatingProcessRemoteSessionDeviceName, ActionType, InitiatingProcessRemoteSessionIP, Protocol
+| order by TimeGenerated asc
+```
+<img width="842" height="92" alt="image" src="https://github.com/user-attachments/assets/164f1868-f856-49d3-86a7-63cdc2f2d91d" />
+
 
 
 **Objective:**
